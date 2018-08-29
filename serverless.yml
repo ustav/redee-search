@@ -52,6 +52,7 @@ package:
 functions:
   search:
     handler: de.scout24.redee.SearchHandler
+    timeout: 60
 
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
