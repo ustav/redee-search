@@ -5,21 +5,18 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.scout24.redee.exception.ResourceException;
 import com.scout24.redee.extraction.DateExtraction;
 import com.scout24.redee.extraction.stanford.StanfordInformationExtractor;
-import de.scout24.redee.model.SearchItemWithAppointments;
+import de.scout24.redee.model.SearchResultWithAppointments;
 import io.reactivex.Flowable;
 import io.reactivex.Single;
 import io.reactivex.schedulers.Schedulers;
 import is24.mapi.Api;
-import is24.mapi.model.SearchItem;
-import is24.mapi.model.SearchResponse;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import is24.mapi.model.SearchPage;
+import is24.mapi.model.SearchResult;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.IOException;
+import java.util.*;
 
 public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGatewayResponse> {
 
@@ -54,7 +51,7 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
         queryParameters.remove(APPOINTMENTS_QUERY_PARAM);
 
         try {
-            final SearchResponse response = searchAppointments ?
+            final SearchPage response = searchAppointments ?
                     getResponseWithExtractedVisitDates(queryParameters, authBearer) :
                     getOriginalAPIResponse(queryParameters, authBearer);
 
@@ -71,39 +68,40 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
         }
     }
 
-    private SearchResponse getOriginalAPIResponse(Map<String, String> queryParameters, String authBearer) {
+    private SearchPage getOriginalAPIResponse(Map<String, String> queryParameters, String authBearer) {
         return api.search(queryParameters, authBearer)
                 .doOnError(this::errorHandler)
                 .blockingGet();
     }
 
-    private SearchResponse getResponseWithExtractedVisitDates(Map<String, String> queryParameters, String authBearer) {
+    private SearchPage getResponseWithExtractedVisitDates(Map<String, String> queryParameters, String authBearer) {
         return api.search(queryParameters, authBearer)
                 .subscribeOn(Schedulers.io())
-                .flatMap(searchResponse ->
-                        Flowable.fromIterable(searchResponse.results)
+                .flatMap(searchPage ->
+                        Flowable.fromIterable(searchPage.results)
                                 .parallel()
                                 .runOn(Schedulers.io())
-                                .flatMap(searchItem -> extractAppointments(searchItem, authBearer).toFlowable())
-                                .filter(searchItem -> !((SearchItemWithAppointments)searchItem).dates.isEmpty())
+                                .flatMap(searchResult -> extractAppointments(searchResult, authBearer).toFlowable())
+                                .filter(searchResult -> !((SearchResultWithAppointments) searchResult).dates.isEmpty())
                                 .sequential()
                                 .toList()
                                 .map(searchItemWithAppointments ->
-                                        new SearchResponse(
-                                                searchItemWithAppointments,
-                                                searchResponse.totalResults,
-                                                searchResponse.pageSize,
-                                                searchResponse.pageNumber,
-                                                searchResponse.numberOfPages,
-                                                searchResponse.totalNewResults
+                                        new SearchPage(
+                                                searchPage.totalResults,
+                                                searchPage.pageSize,
+                                                searchPage.pageNumber,
+                                                searchPage.numberOfPages,
+                                                searchPage.numberOfListings,
+                                                searchPage.searchId,
+                                                searchItemWithAppointments
                                         )
                                 ))
                 .doOnError(this::errorHandler)
                 .blockingGet();
     }
 
-    private Single<SearchItem> extractAppointments(SearchItem searchItem, String authBearer) {
-        return api.getLegacyExpose(searchItem.id, authBearer).map(legacyExpose -> {
+    private Single<SearchResult> extractAppointments(SearchResult searchResult, String authBearer) {
+        return api.getLegacyExpose(searchResult.id, authBearer).map(legacyExpose -> {
             String otherNote = legacyExpose.realEstate.otherNote;
             String title = legacyExpose.realEstate.title;
             List<DateExtraction> extractions = new ArrayList<>();
@@ -118,7 +116,26 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
                 extractions.addAll(titleExtractions);
             }
 
-            return new SearchItemWithAppointments(searchItem.id, searchItem.infoLine, searchItem.attributes, searchItem.pictureUrl, extractions, legacyExpose.realEstate.otherNote, legacyExpose.realEstate.title);
+            return new SearchResultWithAppointments(
+                    searchResult.id,
+                    searchResult.reportUrl,
+                    searchResult.isProject,
+                    searchResult.isPrivate,
+                    searchResult.listingType,
+                    searchResult.published,
+                    searchResult.isNewObject,
+                    searchResult.pictures,
+                    searchResult.titlePicture,
+                    searchResult.address,
+                    searchResult.attributes,
+                    searchResult.projectObjectsSectionHeading,
+                    searchResult.projectObjects,
+                    searchResult.groupingObjectsSectionHeading,
+                    searchResult.groupingObjects,
+                    extractions,
+                    legacyExpose.realEstate.otherNote,
+                    legacyExpose.realEstate.title
+            );
         });
     }
 
