@@ -12,11 +12,17 @@ import io.reactivex.schedulers.Schedulers;
 import is24.mapi.Api;
 import is24.mapi.model.SearchPage;
 import is24.mapi.model.SearchResult;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.IOException;
-import java.util.*;
 
 public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGatewayResponse> {
 
@@ -24,13 +30,16 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
     private static final String HEADERS_KEY = "headers";
     private static final String APPOINTMENTS_QUERY_PARAM = "appointments";
 
+
     private static final Logger LOG = LogManager.getLogger(SearchHandler.class);
 
     private StanfordInformationExtractor extractor;
     private Api api;
+    private Pattern clientResponseCodePattern;
 
     public SearchHandler() {
         api = new Api(false);
+        clientResponseCodePattern = Pattern.compile("(?<responseCode>4\\d\\d)");
         try {
             extractor = new StanfordInformationExtractor();
         } catch (IOException | ResourceException e) {
@@ -59,18 +68,19 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
                     .setStatusCode(200)
                     .setObjectBody(response)
                     .build();
-        } catch (RuntimeException e) {
-            LOG.error("Exception occurred, returning 500 to client. Message: " + e.getMessage(), e);
+        } catch (Exception e) {
+            String message = getErrorMessage(e);
+            int responseCode = getErrorResponseCode(message);
+            LOG.error("Exception occurred, returning " + responseCode + " to client. Message: " + message, e);
             return ApiGatewayResponse.builder()
-                    .setStatusCode(500)
-                    .setObjectBody(e.getMessage())
+                    .setStatusCode(responseCode)
+                    .setObjectBody(message)
                     .build();
         }
     }
 
     private SearchPage getOriginalAPIResponse(Map<String, String> queryParameters, String authBearer) {
         return api.search(queryParameters, authBearer)
-                .doOnError(this::errorHandler)
                 .blockingGet();
     }
 
@@ -97,7 +107,6 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
                                                 searchItemWithAppointments
                                         )
                                 ))
-                .doOnError(this::errorHandler)
                 .blockingGet();
     }
 
@@ -111,7 +120,6 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
 
             if (title != null) {
                 Collection<DateExtraction> titleExtractions = extractor.extract(legacyExpose.realEstate.title);
-//                extractions.addAll(titleExtractions);
                 for (DateExtraction titleExtraction : titleExtractions) {
                     if (titleExtraction.getStart().after(now)) {
                         extractions.add(titleExtraction);
@@ -121,7 +129,6 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
 
             if (otherNote != null) {
                 Collection<DateExtraction> otherExtractions = extractor.extract(legacyExpose.realEstate.otherNote);
-//                extractions.addAll(otherExtractions);
                 for (DateExtraction otherExtraction : otherExtractions) {
                     if (otherExtraction.getStart().after(now)) {
                         extractions.add(otherExtraction);
@@ -162,10 +169,24 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
         }
     }
 
-    private void errorHandler(Throwable throwable) {
-        final String message = "Server error has occurred, message: " + throwable.getMessage();
+    private String getErrorMessage(Throwable e) {
+        if (e.getCause() != null && e.getCause().getMessage() != null) {
+            return e.getCause().getMessage();
+        } else if (e.getMessage() != null) {
+            return e.getMessage();
+        }
+        return "An error has occurred.";
+    }
 
-        LOG.error(message, throwable);
-        throw new RuntimeException(message, throwable);
+    private int getErrorResponseCode(String message) {
+        if (message.toLowerCase().contains("oauthtoken")) {
+            return 401;
+        }
+        Matcher matcher = clientResponseCodePattern.matcher(message);
+        if (matcher.find()) {
+            return Integer.parseInt(matcher.group("responseCode"));
+        } else {
+            return 500;
+        }
     }
 }
