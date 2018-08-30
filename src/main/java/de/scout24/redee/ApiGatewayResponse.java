@@ -3,11 +3,13 @@ package de.scout24.redee;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,7 +52,9 @@ public class ApiGatewayResponse {
 
         private static final Logger LOG = LogManager.getLogger(ApiGatewayResponse.Builder.class);
 
-        Gson gson = new Gson();
+        Gson gson = new GsonBuilder()
+                .setDateFormat("yyyy-MM-dd'T'HH:mm:ss+02:00")
+                .create();
 
         private static final ObjectMapper objectMapper = new ObjectMapper();
 
