@@ -75,6 +75,7 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
     }
 
     private SearchPage getResponseWithExtractedVisitDates(Map<String, String> queryParameters, String authBearer) {
+        queryParameters.put("pagesize", "201");
         return api.search(queryParameters, authBearer)
                 .subscribeOn(Schedulers.io())
                 .flatMap(searchPage ->
@@ -87,11 +88,11 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
                                 .toList()
                                 .map(searchItemWithAppointments ->
                                         new SearchPage(
-                                                searchPage.totalResults,
-                                                searchPage.pageSize,
-                                                searchPage.pageNumber,
-                                                searchPage.numberOfPages,
-                                                searchPage.numberOfListings,
+                                                searchItemWithAppointments.size(),
+                                                searchItemWithAppointments.size(),
+                                                1,
+                                                1,
+                                                searchItemWithAppointments.size(),
                                                 searchPage.searchId,
                                                 searchItemWithAppointments
                                         )
@@ -102,18 +103,30 @@ public class SearchHandler implements RequestHandler<Map<String, Object>, ApiGat
 
     private Single<SearchResult> extractAppointments(SearchResult searchResult, String authBearer) {
         return api.getLegacyExpose(searchResult.id, authBearer).map(legacyExpose -> {
-            String otherNote = legacyExpose.realEstate.otherNote;
             String title = legacyExpose.realEstate.title;
+            String otherNote = legacyExpose.realEstate.otherNote;
             List<DateExtraction> extractions = new ArrayList<>();
 
-            if (otherNote != null) {
-                Collection<DateExtraction> otherExtractions = extractor.extract(legacyExpose.realEstate.otherNote);
-                extractions.addAll(otherExtractions);
-            }
+            Date now = new Date();
 
             if (title != null) {
                 Collection<DateExtraction> titleExtractions = extractor.extract(legacyExpose.realEstate.title);
-                extractions.addAll(titleExtractions);
+//                extractions.addAll(titleExtractions);
+                for (DateExtraction titleExtraction : titleExtractions) {
+                    if (titleExtraction.getStart().after(now)) {
+                        extractions.add(titleExtraction);
+                    }
+                }
+            }
+
+            if (otherNote != null) {
+                Collection<DateExtraction> otherExtractions = extractor.extract(legacyExpose.realEstate.otherNote);
+//                extractions.addAll(otherExtractions);
+                for (DateExtraction otherExtraction : otherExtractions) {
+                    if (otherExtraction.getStart().after(now)) {
+                        extractions.add(otherExtraction);
+                    }
+                }
             }
 
             return new SearchResultWithAppointments(
