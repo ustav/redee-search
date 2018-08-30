@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
+
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,6 +49,8 @@ public class ApiGatewayResponse {
     public static class Builder {
 
         private static final Logger LOG = LogManager.getLogger(ApiGatewayResponse.Builder.class);
+
+        Gson gson = new Gson();
 
         private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -113,12 +117,13 @@ public class ApiGatewayResponse {
             if (rawBody != null) {
                 body = rawBody;
             } else if (objectBody != null) {
-                try {
-                    body = objectMapper.writeValueAsString(objectBody);
-                } catch (JsonProcessingException e) {
-                    LOG.error("failed to serialize object", e);
-                    throw new RuntimeException(e);
-                }
+                body = gson.toJson(objectBody);
+//                try {
+//                    body = objectMapper.writeValueAsString(objectBody);
+//                } catch (JsonProcessingException e) {
+//                    LOG.error("failed to serialize object", e);
+//                    throw new RuntimeException(e);
+//                }
             } else if (binaryBody != null) {
                 body = new String(Base64.getEncoder().encode(binaryBody), StandardCharsets.UTF_8);
             }
